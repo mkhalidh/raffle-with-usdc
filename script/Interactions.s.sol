@@ -8,6 +8,9 @@ import {DevOpsTools} from "foundry-devops/src/DevOpsTools.sol";
 import {VRFCoordinatorV2_5Mock} from "@chainlink/contracts/src/v0.8/vrf/mocks/VRFCoordinatorV2_5Mock.sol";
 import {LinkToken} from "../test/mocks/LinkToken.sol";
 import {CodeConstants} from "./HelperConfig.s.sol";
+import {
+    IERC20
+} from "@chainlink/contracts/src/v0.8/vendor/openzeppelin-solidity/v4.8.3/contracts/token/ERC20/IERC20.sol";
 
 contract CreateSubscription is Script {
     function createSubscriptionUsingConfig() public returns (uint256, address) {
@@ -99,5 +102,30 @@ contract FundSubscription is CodeConstants, Script {
 
     function run() external {
         fundSubscriptionUsingConfig();
+    }
+}
+
+contract ApproveUsdc is Script {
+    error ApproveUsdc__ApprovalFailed();
+
+    function approveUsdc(address raffleAddress, address usdcAddress, uint256 amount, address adminWallet) public {
+        console.log("Admin/sponsor wallet:", adminWallet);
+        console.log("Raffle spender:", raffleAddress);
+        console.log("USDC approval base units:", amount);
+
+        vm.startBroadcast(adminWallet);
+        bool resetSucceeded = IERC20(usdcAddress).approve(raffleAddress, 0);
+        bool approvalSucceeded = IERC20(usdcAddress).approve(raffleAddress, amount);
+        vm.stopBroadcast();
+
+        if (!resetSucceeded || !approvalSucceeded) revert ApproveUsdc__ApprovalFailed();
+    }
+
+    function run() external {
+        address raffleAddress = vm.envAddress("RAFFLE_ADDRESS");
+        Raffle raffle = Raffle(raffleAddress);
+        uint256 approvalAmount = raffle.getSponsoredAmountPerEntry() * raffle.getMaxPlayers();
+
+        approveUsdc(raffleAddress, raffle.getUsdc(), approvalAmount, raffle.getSponsor());
     }
 }

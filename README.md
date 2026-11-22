@@ -1,204 +1,154 @@
+# Raffle with USDC
 
-> ! Updates from Video
-> 1. V2.5 of Chainlink VRF uses a `uint256` as a subId instead of a `uint64` this repo has a comment to reflect that. We added a mock in case you'd like to work with version 2.5.
-> 2. We use `0.1.0` of the `foundry-devops` package which doesn't need to have `ffi=true`
+A sponsor-funded USDC raffle built with Foundry, Chainlink VRF v2.5, and
+Chainlink Automation. The admin's MetaMask wallet is the deployer and sponsor.
+Participants do not pay an entry fee; they only pay gas for `enterRaffle()`.
 
-# Foundry Smart Contract Lottery
+## Rules
 
-This is a section of the Cyfrin Foundry Solidity Course.
+| Setting | Value |
+| --- | ---: |
+| Sponsored amount per accepted entry | 1 USDC (`1_000_000` base units) |
+| Maximum unique wallets per lottery | 5 |
+| Admin approval for one full lottery | 5 USDC (`5_000_000` base units) |
+| Participant USDC payment | 0 USDC |
+| Prize | Actual USDC collected in the current lottery |
+| Number of lotteries | Unlimited, sequentially in one contract |
 
-*[⭐️ (3:04:09) | Lesson 9: Foundry Smart Contract Lottery](https://www.youtube.com/watch?v=sas02qSFZ74&t=11049s)*
+If three users enter, the contract collects 3 USDC and the winner receives
+3 USDC. A 5 USDC approval is only a spending limit; unused allowance does not
+leave the admin wallet.
 
-- [Foundry Smart Contract Lottery](#foundry-smart-contract-lottery)
-- [Getting Started](#getting-started)
-  - [Requirements](#requirements)
-  - [Quickstart](#quickstart)
-    - [Optional Gitpod](#optional-gitpod)
-- [Usage](#usage)
-  - [Start a local node](#start-a-local-node)
-  - [Library](#library)
-  - [Deploy](#deploy)
-  - [Deploy - Other Network](#deploy---other-network)
-  - [Testing](#testing)
-    - [Test Coverage](#test-coverage)
-- [Deployment to a testnet or mainnet](#deployment-to-a-testnet-or-mainnet)
-  - [Scripts](#scripts)
-  - [Estimate gas](#estimate-gas)
-- [Formatting](#formatting)
-- [Additional Info:](#additional-info)
-  - [Let's talk about what "Official" means](#lets-talk-about-what-official-means)
-  - [Summary](#summary)
-- [Thank you!](#thank-you)
+## Flow
 
-# Getting Started
+1. The admin deploys the Raffle contract from their MetaMask wallet.
+2. The same admin wallet approves the Raffle to spend up to 5 USDC.
+3. A unique participant calls `enterRaffle()` without sending ETH or USDC.
+4. The Raffle calls USDC `transferFrom(admin, raffle, 1 USDC)`.
+5. The participant receives a logical ticket number through `TicketIssued`.
+6. After the interval, Chainlink Automation calls `performUpkeep()`.
+7. Chainlink VRF selects one ticket fairly.
+8. The selected wallet receives the current USDC pot.
+9. Players are cleared, the lottery ID increments, and the next lottery opens
+   automatically in the same contract.
 
-## Requirements
+One wallet can enter only once in one lottery, but can enter again in the next
+lottery. Tickets are event-based logical numbers, not NFTs.
 
-- [git](https://git-scm.com/book/en/v2/Getting-Started-Installing-Git)
-  - You'll know you did it right if you can run `git --version` and you see a response like `git version x.x.x`
-- [foundry](https://getfoundry.sh/)
-  - You'll know you did it right if you can run `forge --version` and you see a response like `forge 0.2.0 (816e00b 2023-03-16T00:05:26.396218Z)`
+## USDC approval
 
-## Quickstart
+Approval is made on the USDC token contract. The Raffle address is the spender:
 
+```text
+spender = <DEPLOYED_RAFFLE_ADDRESS>
+amount  = 5_000_000
 ```
-git clone https://github.com/Cyfrin/foundry-smart-contract-lottery-cu
-cd foundry-smart-contract-lottery-cu
+
+The included script resets the old allowance to zero and approves exactly 5 USDC:
+
+```bash
+make approveUsdc ARGS="--network sepolia"
+```
+
+Approval does not transfer funds. Each successful entry consumes 1 USDC of
+allowance. Before a later lottery, the admin can approve again when the remaining
+allowance is insufficient. Unlimited approval is not used.
+
+## Official USDC addresses
+
+| Network | Chain ID | Address |
+| --- | ---: | --- |
+| Ethereum Mainnet | 1 | `0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48` |
+| Ethereum Sepolia | 11155111 | `0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238` |
+| Anvil | 31337 | A local 6-decimal `MockUSDC` is deployed |
+
+Verify addresses against Circle's official
+[USDC contract address list](https://developers.circle.com/stablecoins/usdc-contract-addresses)
+before using another network.
+
+## Setup
+
+Requirements: Git, Foundry, a Sepolia RPC URL, Sepolia ETH for gas, test USDC,
+and LINK for the VRF subscription.
+
+```bash
+git clone https://github.com/mkhalidh/raffle-with-usdc.git
+cd raffle-with-usdc
+forge install
+cp .env.example .env
+```
+
+Fill `.env` locally:
+
+```dotenv
+SEPOLIA_RPC_URL=https://eth-sepolia.g.alchemy.com/v2/YOUR_API_KEY
+PRIVATE_KEY=0xYOUR_METAMASK_TEST_WALLET_PRIVATE_KEY
+SPONSOR_ADDRESS=0xYOUR_METAMASK_ADMIN_WALLET_ADDRESS
+VRF_SUBSCRIPTION_ID=YOUR_FUNDED_CHAINLINK_VRF_SUBSCRIPTION_ID
+RAFFLE_ADDRESS=0xDEPLOYED_RAFFLE_ADDRESS
+ETHERSCAN_API_KEY=YOUR_ETHERSCAN_API_KEY
+```
+
+`PRIVATE_KEY` and `SPONSOR_ADDRESS` must belong to the same MetaMask test
+account. Never commit `.env` or use a wallet holding valuable real funds.
+
+## Build and test
+
+```bash
 forge build
-```
-
-### Optional Gitpod
-
-If you can't or don't want to run and install locally, you can work with this repo in Gitpod. If you do this, you can skip the `clone this repo` part.
-
-[![Open in Gitpod](https://gitpod.io/button/open-in-gitpod.svg)](https://gitpod.io/#github.com/Cyfrin/foundry-smart-contract-lottery-cu)
-
-# Usage
-
-## Start a local node
-
-```
-make anvil
-```
-
-## Library
-
-If you're having a hard time installing the chainlink library, you can optionally run this command. 
-
-```
-forge install smartcontractkit/chainlink-brownie-contracts@0.6.1
-```
-
-## Deploy
-
-This will default to your local node. You need to have it running in another terminal in order for it to deploy.
-
-```
-make deploy
-```
-
-## Deploy - Other Network
-
-[See below](#deployment-to-a-testnet-or-mainnet)
-
-## Testing
-
-We talk about 4 test tiers in the video.
-
-1. Unit
-2. Integration
-3. Forked
-4. Staging
-
-This repo we cover #1 and #3.
-
-```
-forge test
-```
-
-or
-
-```
-forge test --fork-url $SEPOLIA_RPC_URL
-```
-
-### Test Coverage
-
-```
+forge test -vv
 forge coverage
+forge fmt --check
 ```
 
-# Deployment to a testnet or mainnet
+The suite verifies admin approval, sponsor balance/allowance failures, unique
+entries, ticket numbers, the player cap, upkeep, VRF settlement, exact USDC
+prizes, and automatic opening of the next lottery.
 
-1. Setup environment variables
+## Deployment
 
-You'll want to set your `SEPOLIA_RPC_URL` and `PRIVATE_KEY` as environment variables. You can add them to a `.env` file, similar to what you see in `.env.example`.
+Local:
 
-- `PRIVATE_KEY`: The private key of your account (like from [metamask](https://metamask.io/)). **NOTE:** FOR DEVELOPMENT, PLEASE USE A KEY THAT DOESN'T HAVE ANY REAL FUNDS ASSOCIATED WITH IT.
-  - You can [learn how to export it here](https://metamask.zendesk.com/hc/en-us/articles/360015289632-How-to-Export-an-Account-Private-Key).
-- `SEPOLIA_RPC_URL`: This is url of the sepolia testnet node you're working with. You can get setup with one for free from [Alchemy](https://alchemy.com/?a=673c802981)
-
-Optionally, add your `ETHERSCAN_API_KEY` if you want to verify your contract on [Etherscan](https://etherscan.io/).
-
-1. Get testnet ETH
-
-Head over to [faucets.chain.link](https://faucets.chain.link/) and get some testnet ETH. You should see the ETH show up in your metamask.
-
-2. Deploy
-
+```bash
+make anvil
+# In another terminal:
+make deploy
+# Copy the printed address into RAFFLE_ADDRESS in .env, then:
+make approveUsdc
 ```
+
+Sepolia:
+
+```bash
 make deploy ARGS="--network sepolia"
+# Copy the printed address into RAFFLE_ADDRESS in .env, then:
+make approveUsdc ARGS="--network sepolia"
 ```
 
-This will setup a ChainlinkVRF Subscription for you. If you already have one, update it in the `scripts/HelperConfig.s.sol` file. It will also automatically add your contract as a consumer.
+For Sepolia, create and fund a Chainlink VRF v2.5 subscription first and put its
+ID in `VRF_SUBSCRIPTION_ID`. The deployment script deploys the Raffle and
+registers it as a VRF consumer. After deployment, register the Raffle as a
+Chainlink Automation custom-logic upkeep.
 
-3. Register a Chainlink Automation Upkeep
+See [DEPLOYMENT_GUIDE.md](DEPLOYMENT_GUIDE.md) for the complete procedure and
+[ROLES_AND_FUNCTIONS.md](ROLES_AND_FUNCTIONS.md) for function ownership.
 
-[You can follow the documentation if you get lost.](https://docs.chain.link/chainlink-automation/compatible-contracts)
+## Main contract functions
 
-Go to [automation.chain.link](https://automation.chain.link/new) and register a new upkeep. Choose `Custom logic` as your trigger mechanism for automation. Your UI will look something like this once completed:
+- `enterRaffle()` — adds one unique wallet and pulls 1 USDC from the admin.
+- `checkUpkeep()` — reports whether settlement conditions are ready.
+- `performUpkeep()` — closes entries and requests VRF randomness.
+- `fulfillRandomWords()` — selects the winner, resets state, and pays the pot.
+- `getCurrentPot()` — returns the prize implied by current accepted entries.
+- `getCurrentLotteryId()` — identifies the currently open lottery.
 
-![Automation](./img/automation.png)
+## Security notes
 
-## Scripts
+- Uses `SafeERC20` for token transfers.
+- Updates lottery state before transferring the prize.
+- Rejects duplicate entries and entries while calculating.
+- Uses a capped 5 USDC approval instead of unlimited approval.
+- Randomness comes from Chainlink VRF, not block values.
+- Wallet uniqueness cannot prove human identity; use an allowlist if required.
 
-After deploying to a testnet or local net, you can run the scripts.
-
-Using cast deployed locally example:
-
-```
-cast send <RAFFLE_CONTRACT_ADDRESS> "enterRaffle()" --value 0.1ether --private-key <PRIVATE_KEY> --rpc-url $SEPOLIA_RPC_URL
-```
-
-or, to create a ChainlinkVRF Subscription:
-
-```
-make createSubscription ARGS="--network sepolia"
-```
-
-## Estimate gas
-
-You can estimate how much gas things cost by running:
-
-```
-forge snapshot
-```
-
-And you'll see an output file called `.gas-snapshot`
-
-# Formatting
-
-To run code formatting:
-
-```
-forge fmt
-```
-
-# Additional Info:
-Some users were having a confusion that whether Chainlink-brownie-contracts is an official Chainlink repository or not. Here is the info.
-Chainlink-brownie-contracts is an official repo. The repository is owned and maintained by the chainlink team for this very purpose, and gets releases from the proper chainlink release process. You can see it's still the `smartcontractkit` org as well.
-
-https://github.com/smartcontractkit/chainlink-brownie-contracts
-
-## Let's talk about what "Official" means
-The "official" release process is that chainlink deploys it's packages to [npm](https://www.npmjs.com/package/@chainlink/contracts). So technically, even downloading directly from `smartcontractkit/chainlink` is wrong, because it could be using unreleased code.
-
-So, then you have two options:
-
-1. Download from NPM and have your codebase have dependencies foreign to foundry
-2. Download from the chainlink-brownie-contracts repo which already downloads from npm and then packages it nicely for you to use in foundry.
-## Summary
-1. That is an official repo maintained by the same org
-2. It downloads from the official release cycle `chainlink/contracts` use (npm) and packages it nicely for digestion from foundry.
-
-
-# Thank you!
-
-If you appreciated this, feel free to follow me or donate!
-
-ETH/Arbitrum/Optimism/Polygon/etc Address: 0x9680201d9c93d65a3603d2088d125e955c73BD65
-
-[![Patrick Collins Twitter](https://img.shields.io/badge/Twitter-1DA1F2?style=for-the-badge&logo=twitter&logoColor=white)](https://twitter.com/PatrickAlphaC)
-[![Patrick Collins YouTube](https://img.shields.io/badge/YouTube-FF0000?style=for-the-badge&logo=youtube&logoColor=white)](https://www.youtube.com/channel/UCn-3f8tw_E1jZvhuHatROwA)
-[![Patrick Collins Linkedin](https://img.shields.io/badge/LinkedIn-0077B5?style=for-the-badge&logo=linkedin&logoColor=white)](https://www.linkedin.com/in/patrickalphac/)
-[![Patrick Collins Medium](https://img.shields.io/badge/Medium-000000?style=for-the-badge&logo=medium&logoColor=white)](https://medium.com/@patrick.collins_58673/)
+This project has not been professionally audited. Use a testnet first.

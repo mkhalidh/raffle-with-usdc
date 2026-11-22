@@ -13,6 +13,8 @@ docs/
 
 # Dotenv file
 .env
+/TESTING_GUIDE.md
+/graphify-out/
 
 # zkSync
 zkout/
