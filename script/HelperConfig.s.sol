@@ -102,13 +102,13 @@ contract HelperConfig is CodeConstants, Script {
         address adminWallet = _configuredAdminWallet();
         console2.log("Deploying local Chainlink and USDC mocks");
         if (block.number == 0) vm.roll(1);
-        vm.startBroadcast();
+        vm.startBroadcast(adminWallet);
         LocalVRFCoordinatorV2_5Mock vrfCoordinator =
             new LocalVRFCoordinatorV2_5Mock(MOCK_BASE_FEE, MOCK_GAS_PRICE_LINK, MOCK_WEI_PER_UINT_LINK);
         LinkToken link = new LinkToken();
         MockUSDC usdc = new MockUSDC();
         uint256 subscriptionId = vrfCoordinator.createDeterministicSubscription();
-        vrfCoordinator.fundSubscription(subscriptionId, 3 ether);
+        vrfCoordinator.fundSubscription(subscriptionId, 100 ether);
         usdc.mint(adminWallet, LOCAL_SPONSOR_BALANCE);
         vm.stopBroadcast();
 
